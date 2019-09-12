@@ -56,7 +56,7 @@ if __name__ == '__main__':
         'dim_dec': dim_dec,
         'dim_coverage': dim_coverage,
         'down_sample': down_sample,
-        'dim_target': [111],
+        'dim_target': [119],
         'dim_feature': [9],
         'optimizer': ['adadelta'],
         'decay-c': [0.],
