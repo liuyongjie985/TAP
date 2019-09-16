@@ -3,6 +3,7 @@ from xml.dom.minidom import parse
 import xml.dom.minidom
 import os
 
+FLAG = "test"
 # ************************加载符号词表*************************************
 file = open("dictionary.txt")
 symbol_dict = {}
@@ -268,15 +269,15 @@ def deal_single_file(parent, filename, caption_file, ascii_output_path, align_ou
 
 input_path = "data/"
 caption_output_path = "./caption/"
-ascii_output_path = "./ascii/"
-align_output_path = "./align/"
+ascii_output_path = "./on-ascii-" + FLAG + "/"
+align_output_path = "./on-align-train/"
 if not os.path.exists(caption_output_path):
     os.makedirs(caption_output_path)
 if not os.path.exists(ascii_output_path):
     os.makedirs(ascii_output_path)
 if not os.path.exists(align_output_path):
     os.makedirs(align_output_path)
-caption_file = caption_output_path + "caption.txt"
+caption_file = caption_output_path + FLAG + "_caption.txt"
 caption_file = open(caption_file, "w")
 for parent, dirnames, filenames in os.walk(input_path, followlinks=True):
     for filename in filenames:
@@ -284,9 +285,10 @@ for parent, dirnames, filenames in os.walk(input_path, followlinks=True):
         print('文件名：%s' % filename)
         print('文件完整路径：%s\n' % file_path)
         if file_path[-6:] == ".inkml":
-            if False == deal_single_file(parent, filename[:-6], caption_file, ascii_output_path,align_output_path):
+            if False == deal_single_file(parent, filename[:-6], caption_file, ascii_output_path, align_output_path):
                 error_count += 1
             total += 1
+
 caption_file.close()
 print("annotation type:")
 for x, y in annotation_type.items():
