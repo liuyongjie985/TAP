@@ -12,9 +12,9 @@ oupFp_feature = open(outFile, 'wr')
 
 alignment = {}
 sentNum = 0
-needCount = 100
+needCount = 19999999999999
 
-scpFile = open('train_caption.txt')
+scpFile = open('caption/train_caption.txt')
 while 1:
     line = scpFile.readline().strip()  # remove the '\n'
     if not line or sentNum >= needCount:
@@ -36,7 +36,9 @@ while 1:
             for align_line in f_align:
                 wordNum += 1
                 align_tmp = align_line.split()
+                print align_tmp
                 for i in range(1, len(align_tmp)):
+                    print align_tmp[i]
                     pos = int(align_tmp[i])
                     if pos == -1:
                         continue
