@@ -47,7 +47,8 @@ while 1:
                     else:
                         align[(penup_index[pos - 1] + 1):(penup_index[pos] + 1), wordNum] = 1
         # numpy.savetxt(check_file, align, fmt='%d')
-        alignment[key] = align
+        for x in range(10):        
+            alignment[key+str(x)] = align
 
         if sentNum / 500 == sentNum * 1.0 / 500:
             print 'process sentences ', sentNum

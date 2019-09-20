@@ -5,7 +5,7 @@ import sys
 import cPickle as pkl
 import numpy as np
 
-FLAG = "test"
+FLAG = "train"
 
 feature_path = 'on-ascii-' + FLAG + '/'  # for test.pkl, change 'train' to 'test'
 outFile = 'online-' + FLAG + '.pkl'
@@ -26,7 +26,8 @@ while 1:
         feature_file = feature_path + key + '.ascii'
         mat = np.loadtxt(feature_file)
         sentNum = sentNum + 1
-        features[key] = mat
+        for x in range(10):
+            features[key+str(x)] = mat
         # generate stroke_mask
 
         # penup_index = np.where(mat[:,-1] == 1)[0] # 0 denote pen down, 1 denote pen up

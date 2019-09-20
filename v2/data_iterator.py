@@ -52,12 +52,12 @@ def dataIterator(feature_file,label_file,align_file,dictionary,batch_size,maxlen
     feature_total=[]
     label_total=[]
     alignment_total=[]
-
+    
     i=0
     for uid,length in sentLen:
         fea=features[uid]
         ali=aligns[uid]
-        lab=targets[uid]
+        lab=targets[uid[:-1]]
         if len(lab)>maxlen:
             print 'sentence', uid, 'length bigger than', maxlen, 'ignore'
         else:
@@ -131,7 +131,7 @@ def dataIterator_valid(feature_file,label_file,dictionary,batch_size,maxlen):
     i=0
     for uid,length in sentLen:
         fea=features[uid]
-        lab=targets[uid]
+        lab=targets[uid[:-1]]
         if len(lab)>maxlen:
             print 'sentence', uid, 'length bigger than', maxlen, 'ignore'
         else:
