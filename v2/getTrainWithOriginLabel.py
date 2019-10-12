@@ -8,7 +8,12 @@ import traceback
 import math
 from utils import BoxDiagram
 
-FLAG = "test"
+'''
+作者的caption使用了统一符号的操作，getTrain.py未做相应处理，现将其
+原caption文件用作标注文件，并生成.align文件
+'''
+
+FLAG = "train"
 
 # ************************加载符号词表*************************************
 file = open("dictionary.txt")
@@ -32,6 +37,24 @@ while 1:
 print(symbol_dict)
 print("max_length: " + str(max_length))
 print(max_length_symbol)
+# *************************************************************
+# 该代码使用的caption文件为作者原本caption，其做了格式统一化处理，先加载其文件
+origin_dict = {}
+origin_train_caption = open("caption/origin_" + FLAG + "_caption.txt", "r")
+while 1:
+    lines = origin_train_caption.readlines(100000)
+    if not lines:
+        break
+    for line in lines:
+        temp_list = line.strip().split()
+        temp_str = ""
+        for i, x in enumerate(temp_list[1:]):
+            if x != "":
+                temp_str += x
+            if i != len(temp_list[1:]) - 1:
+                temp_str += " "
+        origin_dict[temp_list[0]] = temp_str
+origin_train_caption.close()
 
 # ***********************************************************************
 
@@ -121,9 +144,6 @@ def deal_symbol_label(symbol_label):
             start_index = len(symbol_label)
             result_str = ""
     return result_str
-
-
-
 
 
 '''
@@ -240,7 +260,13 @@ def z_score(traceid2xy):
     return new_traceid2xy
 
 
-def deal_single_file(parent, filename, caption_file, ascii_output_path, align_output_path, pic_output_path):
+'''
+将原caption文件结果以空格隔开形式返回
+'''
+
+
+def deal_single_file(parent, filename, caption_file, ascii_output_path, align_output_path, pic_output_path,
+                     origin_dict):
     file_name = os.path.join(parent, filename)
     symbol_label = ""
     document = xml.dom.minidom.parse(file_name + ".inkml")
@@ -248,6 +274,7 @@ def deal_single_file(parent, filename, caption_file, ascii_output_path, align_ou
     count = 0
     # movie.getElementsByTagName('description')[0]
     annotations = collection.getElementsByTagName("annotation")
+    # 获取 symbol_label
     for annotation in annotations:
         if annotation.hasAttribute("type"):
             if annotation.getAttribute("type") == "truth":
@@ -264,8 +291,19 @@ def deal_single_file(parent, filename, caption_file, ascii_output_path, align_ou
                     break;
 
     assert symbol_label != ""
-    result = deal_symbol_label(symbol_label.strip())
 
+    # **************************原代码**************************
+    # result = deal_symbol_label(symbol_label.strip())
+    # ** ** ** ** ** ** ** ** **新代码** ** ** **
+    '''
+    将原caption文件结果以空格隔开形式返回
+    '''
+    if filename in origin_dict:
+        result = origin_dict[filename]
+    else:
+        result = ""
+
+    # ***********************************************************
     traceid2xy = []
     # 将所有点提出
     traces = collection.getElementsByTagName("trace")
@@ -307,8 +345,8 @@ def deal_single_file(parent, filename, caption_file, ascii_output_path, align_ou
     drawPictureByTrace(traceid2xy, filename + "_origin", pic_output_path, min_x, min_y, max_x, max_y)
     # 移除重复点
     # traceid2xy, num_remove_point = rve_duplicate(traceid2xy, 0.5, -9999)
-    traceid2xy, num_remove_point = rve_duplicate(traceid2xy, .5 * bias, math.pi / 8)
-
+    # traceid2xy, num_remove_point = rve_duplicate(traceid2xy, .5 * bias, math.pi / 8)
+    traceid2xy, num_remove_point = rve_duplicate(traceid2xy, 1.0 * bias, math.pi / 4)
     print("移除重复点之后")
     drawPictureByTrace(traceid2xy, filename + "_after", pic_output_path, min_x, min_y, max_x, max_y)
     # Z-score正则化,二元列表的行元素不再为stroken，为points
@@ -397,7 +435,7 @@ for parent, dirnames, filenames in os.walk(input_path, followlinks=True):
         print('文件完整路径：%s\n' % file_path)
         if file_path[-6:] == ".inkml":
             sign, _ = deal_single_file(parent, filename[:-6], caption_file, ascii_output_path, align_output_path,
-                                       pic_output_path)
+                                       pic_output_path, origin_dict)
             if False == sign:
                 error_count += 1
             num_remove_point += _

@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt  # 约定俗成的写法plt
 # 首先定义两个函数（正弦&余弦）
 import re
 
-INPUT_FILE = "TAP_BETTER_LABEL.log"
-OUTPUT_FILE = "loss_pic_tap_better_label.png"
+INPUT_FILE = "DENSENET_8_batch_size.log"
+OUTPUT_FILE = "loss_pic_DENSENET_8_batch_size.png"
 
 
 def calculatedRatio(sacc_Y):
@@ -52,9 +52,10 @@ while 1:
         else:
             pass
 
-        matchObj = re.match(r"Valid WER: (?P<wer>\d+\.\d+)%, SACC: (?P<sacc>\d+\.\d+)%", line,
+        matchObj = re.match(r"Valid WER: (?P<wer>\d+\.\d+)%, ExpRate: (?P<sacc>\d+\.\d+)%", line,
                             re.M | re.I)
         if matchObj:
+
             print("matchObj.group() : ", matchObj.group("wer"))
             print("matchObj.group(1) : ", matchObj.group("sacc"))
             wer_Y.extend([float(matchObj.group("wer")) for x in range(now_length)])
@@ -67,18 +68,21 @@ while 1:
                     convergence_wer = wer_Y[-1]
                 if True == calculatedRatio(Y[-5:]):
                     convergence_loss = Y[-1]
+
             try:
                 assert len(X) == len(wer_Y)
                 assert len(X) == len(sacc_Y)
             except:
-                print("出错")
+                print("出錯")
                 exit()
             now_length = 0
         else:
             pass
         line_num += 1
+
 X = X[:-now_length]
 Y = Y[:-now_length]
+
 try:
     print(len(X))
     print(len(wer_Y))
