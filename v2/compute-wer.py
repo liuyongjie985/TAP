@@ -33,8 +33,7 @@ def process(recfile, labelfile, resultfile):
             tmp = line.split()
             key = tmp[0]
             latex = tmp[1:]
-            for x in range(10):
-                label_mat[key+str(x)] = latex
+            label_mat[key] = latex
     for key_rec in rec_mat:
         label = label_mat[key_rec]
         rec = rec_mat[key_rec]
