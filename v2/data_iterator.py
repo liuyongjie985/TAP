@@ -37,6 +37,7 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
             else:
                 print 'a word not in the dictionary !! sentence ', uid, 'word ', w
                 sys.exit()
+<<<<<<< HEAD
         targets[uid] = w_list
     # **********************************************************************************************
     # ××××××××××××××××××××××××××××××××××××××××收集所有样例拥有坐标点数并排序××××××××××××××××××××××××××××××
@@ -61,6 +62,32 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
         ali = aligns[uid]
         lab = targets[uid]
         if len(lab) > maxlen:
+=======
+        targets[uid]=w_list
+
+
+
+    sentLen={}
+    for uid,fea in features.iteritems():
+        sentLen[uid]=len(fea)
+
+    sentLen= sorted(sentLen.iteritems(), key=lambda d:d[1]) # sorted by sentence length,  return a list with each triple element
+
+
+    feature_batch=[]
+    label_batch=[]
+    alignment_batch=[]
+    feature_total=[]
+    label_total=[]
+    alignment_total=[]
+    
+    i=0
+    for uid,length in sentLen:
+        fea=features[uid]
+        ali=aligns[uid]
+        lab=targets[uid]
+        if len(lab)>maxlen:
+>>>>>>> 5df2f4fb61733b60455b5f86d6869a4bceded076
             print 'sentence', uid, 'length bigger than', maxlen, 'ignore'
         else:
             if i == batch_size:  # a batch is full

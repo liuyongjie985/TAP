@@ -28,10 +28,10 @@ def main(job_id, params):
                      saveFreq=-1,
                      sampleFreq=-1,
                      datasets=['../data/online-train.pkl',
-                               '../data/train_caption.txt',
+                               '../data/caption/train_caption.txt',
                                '../data/align-online-train.pkl'],
                      valid_datasets=['../data/online-test.pkl',
-                                     '../data/test_caption.txt'],
+                                     '../data/caption/test_caption.txt'],
                      dictionaries=['../data/dictionary.txt'],
                      use_dropout=params['use-dropout'][0])
     return validerr
@@ -54,7 +54,7 @@ if __name__ == '__main__':
         'dim_dec': dim_dec,
         'dim_coverage': dim_coverage,
         'down_sample': down_sample,
-        'dim_target': [111],
+        'dim_target': [119],
         'dim_feature': [9],
         'optimizer': ['adadelta'],
         'decay-c': [0.],
