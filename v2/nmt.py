@@ -1,3 +1,4 @@
+# coding:utf-8
 '''
 Build a neural machine translation model with soft attention
 '''
@@ -19,6 +20,7 @@ import time
 from collections import OrderedDict
 from optimizers import adadelta, adadelta_weightnoise, adam, rmsprop
 from data_iterator import dataIterator, dataIterator_valid
+from theano import function, config, shared
 
 profile = False
 
@@ -94,16 +96,25 @@ def get_layer(name):
     return (eval(fns[0]), eval(fns[1]))
 
 
-# some utilities
+# SVD分解后取第一个u
 def ortho_weight(ndim):
     W = numpy.random.randn(ndim, ndim)
     u, s, v = numpy.linalg.svd(W)
     return u.astype('float32')
 
+    # kernel_size = 121
+    # nin = 1
+    # nout = 256
+
 
 def conv_norm_weight(kernel_size, nin, nout=None, scale=0.01):
     W = scale * numpy.random.rand(nout, nin, kernel_size, 1)
     return W.astype('float32')
+
+
+'''
+返回一个维度转换矩阵
+'''
 
 
 def norm_weight(nin, nout=None, scale=0.01, ortho=True):
@@ -176,6 +187,7 @@ def prepare_data(options, seqs_x, seqs_y, seqs_a, maxlen=None, n_words_src=30000
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
 
+    # ×××××××××××××××××××××××××××××××××去除点数太多的符号×××××××××××××××××××××××××××××××××××××××
     if maxlen is not None:
         new_seqs_x = []
         new_seqs_y = []
@@ -197,11 +209,13 @@ def prepare_data(options, seqs_x, seqs_y, seqs_a, maxlen=None, n_words_src=30000
 
         if len(lengths_x) < 1 or len(lengths_y) < 1:
             return None, None, None, None, None, None
-
+    # ××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
+    # ×××××××××××××××××××××××××××××××以当前batch的最大点长度，最大label个数，最大对齐矩阵制作batch××××××××××××××××××××××××××××××××××××
+    # 8×点数×9维特征
     n_samples = len(seqs_x)
     maxlen_x = numpy.max(lengths_x) + 1
     maxlen_y = numpy.max(lengths_y) + 1
-
+    # options['dim_feature'] = 9
     x = numpy.zeros((maxlen_x, n_samples, options['dim_feature'])).astype('float32')  # SeqX * batch * dim
     y = numpy.zeros((maxlen_y, n_samples)).astype('int64')  # the <eol> must be 0 in the dict !!!
     x_mask = numpy.zeros((maxlen_x, n_samples)).astype('float32')
@@ -215,7 +229,8 @@ def prepare_data(options, seqs_x, seqs_y, seqs_a, maxlen=None, n_words_src=30000
         y_mask[:lengths_y[idx] + 1, idx] = 1.
         a[:lengths_x[idx], idx, :lengths_y[idx]] = s_a * 1.
         a_mask[:lengths_x[idx] + 1, idx, :lengths_y[idx] + 1] = 1.
-
+    # ×××××××××××××××××××××××××××××××*****************************************************××××××××××××××××××××××××××××××××××××
+    # 3个mask用于确定哪里是真实数据
     return x, x_mask, y, y_mask, a, a_mask
 
 
@@ -234,6 +249,8 @@ def param_init_fflayer(options, params, prefix='ff', nin=None, nout=None,
 
 def fflayer(tparams, state_below, options, prefix='rconv',
             activ='lambda x: tensor.tanh(x)', **kwargs):
+    # state_below = batch_size(8)×500
+    # tparams[_p(prefix, 'W') = 500 × 256
     return eval(activ)(
         tensor.dot(state_below, tparams[_p(prefix, 'W')]) +
         tparams[_p(prefix, 'b')])
@@ -247,12 +264,14 @@ def param_init_gru(options, params, prefix='gru', nin=None, dim=None):
         dim = options['dim_proj']
 
     # embedding to gates transformation weights, biases
+    # W = nin × 2 * dim
     W = numpy.concatenate([norm_weight(nin, dim),
                            norm_weight(nin, dim)], axis=1)
     params[_p(prefix, 'W')] = W
     params[_p(prefix, 'b')] = numpy.zeros((2 * dim,)).astype('float32')
 
     # recurrent transformation weights for gates
+    # U = dim × 2*dim
     U = numpy.concatenate([ortho_weight(dim),
                            ortho_weight(dim)], axis=1)
     params[_p(prefix, 'U')] = U
@@ -276,7 +295,7 @@ def gru_layer(tparams, state_below, options, prefix='gru', mask=None,
         n_samples = state_below.shape[1]
     else:
         n_samples = 1
-
+    # dim = 500
     dim = tparams[_p(prefix, 'Ux')].shape[1]
 
     if mask is None:
@@ -290,14 +309,19 @@ def gru_layer(tparams, state_below, options, prefix='gru', mask=None,
 
     # state_below is the input word embeddings
     # input to the gates, concatenated
-    state_below_ = tensor.dot(state_below, tparams[_p(prefix, 'W')]) + \
-                   tparams[_p(prefix, 'b')]
+    # tparams[_p(prefix, 'W')] = 9 × 500
+    state_below_ = tensor.dot(state_below, tparams[_p(prefix, 'W')]) + tparams[_p(prefix, 'b')]
     # input to compute the hidden state proposal
-    state_belowx = tensor.dot(state_below, tparams[_p(prefix, 'Wx')]) + \
-                   tparams[_p(prefix, 'bx')]
+    # tparams[_p(prefix, 'Wx')] = 9 × 250
+    state_belowx = tensor.dot(state_below, tparams[_p(prefix, 'Wx')]) + tparams[_p(prefix, 'bx')]
 
     # step function to be used by scan
     # arguments    | sequences |outputs-info| non-seqs
+    # x_ = 8 × 500
+    # xx_ = 8 × 250
+    # h_ = 8 × 250
+    # U = 250 × 500
+    # Ux = 250× 250
     def _step_slice(m_, x_, xx_, h_, U, Ux):
         preact = tensor.dot(h_, U)
         preact += x_
@@ -419,6 +443,11 @@ def param_init_gru_cond(options, params, prefix='gru_cond',
     return params
 
 
+# state_below = seq_y × batch_size × 256
+# mask = seq_y * batch_size(8)
+# context = seq_x × batch_size(8) × 500 实际上也是隐层得到的状态
+# context_mask = seq_x × batch_size(8)
+# init_state = batch_size × 256
 def gru_cond_layer(tparams, state_below, options, prefix='gru',
                    mask=None, context=None, one_step=False,
                    init_memory=None, init_state=None, alpha_past=None,
@@ -439,8 +468,10 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
     if mask is None:
         mask = tensor.alloc(1., state_below.shape[0], 1)
 
+    # tparams[_p(prefix, 'Wcx')]  = 500 × 256
     dim = tparams[_p(prefix, 'Wcx')].shape[1]
     dimctx = tparams[_p(prefix, 'Wcx')].shape[0]
+    # tparams[_p(prefix, 'conv_Q')] = 256 × 1 × 121 × 1
     pad = (tparams[_p(prefix, 'conv_Q')].shape[2] - 1) / 2
 
     # initial/previous state
@@ -451,9 +482,12 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
     assert context.ndim == 3, \
         'Context must be 3-d: #annotation x #sample x dim'
 
+    # alpha_past = batch_size × seq_x
     if alpha_past is None:
         alpha_past = tensor.alloc(0., n_samples, context.shape[0])
 
+    # tparams[_p(prefix, 'Wc_att')] = 500 × 500
+    # pctx_ = seq_x × batch_size(8) × 500
     pctx_ = tensor.dot(context, tparams[_p(prefix, 'Wc_att')]) + \
             tparams[_p(prefix, 'b_att')]
 
@@ -463,18 +497,54 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
         return _x[:, n * dim:(n + 1) * dim]
 
     # projected x
+
+    # state_belowx = seq_y × batch_size × 256 = seq_y × batch_size × 256 dot 256 × 256
     state_belowx = tensor.dot(state_below, tparams[_p(prefix, 'Wx')]) + \
                    tparams[_p(prefix, 'bx')]
+    # state_below_ = seq_y × batch_size × 512 = seq_y × batch_size × 256 dot 256 × 512
     state_below_ = tensor.dot(state_below, tparams[_p(prefix, 'W')]) + \
                    tparams[_p(prefix, 'b')]
+    # state_belowyg = seq_y × batch_size × 500 = seq_y × batch_size × 256 dot 256 × 500
     state_belowyg = tensor.dot(state_below, tparams[_p(prefix, 'Wyg')]) + \
                     tparams[_p(prefix, 'byg')]
 
-    # state_below_ : x_  1*dim ; state_belowx : xx_  2*dim ; represents E*y
+    # m_ = batch_size
+    # x_ = batch_size × 512
+    # xx_ = batch_size × 256
+    # yg = batch_size × 500
+    # h_ = batch_size × 256
+    # ctx_ = batch_size × 500
+    # alpha = batch_size × seq_x
+    # alpha_past_ = batch_size × seq_x
+    # beta = batch_size
+    # pctx_ = seq_x × batch_size(8) × 500
+    # cc_ = seq_x × batch_size(8) × 500
+    # U = 256 × 512
+    # Wc = 500 × 512
+    # W_comb_att = 256 × 500
+    # U_att = 500 × 1
+    # c_tt = 1
+    # Ux = 256 × 256
+    # Wcx = 500 × 256
+    # U_nl = 256 × 512
+    # Ux_nl = 256 × 256
+    # b_nl = 512
+    # bx_nl = 256
+    # conv_Q = 256 × 1 × 121 × 1
+    # conv_Uf = 256 × 500
+    # conv_b = 500
+    # Whg = 256 × 500
+    # bhg = 500
+    # Umg = 256 × 500
+    # W_m_att = 500×500
+    # U_when_att = 500 × 1
+    # c_when_att = 1
+
 
     def _step_slice(m_, x_, xx_, yg, h_, ctx_, alpha_, alpha_past_, beta, pctx_, cc_,
                     U, Wc, W_comb_att, U_att, c_tt, Ux, Wcx, U_nl, Ux_nl, b_nl, bx_nl, conv_Q, conv_Uf, conv_b,
                     Whg, bhg, Umg, W_m_att, U_when_att, c_when_att):
+        # preact1 = batch_size × 512
         preact1 = tensor.dot(h_, U)
         preact1 += x_
         preact1 = tensor.nnet.sigmoid(preact1)
@@ -482,49 +552,68 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
         r1 = _slice(preact1, 0, dim)  # reset gate
         u1 = _slice(preact1, 1, dim)  # update gate
 
+        # preact1 = batch_size × 256
         preactx1 = tensor.dot(h_, Ux)
         preactx1 *= r1
         preactx1 += xx_
 
         h1 = tensor.tanh(preactx1)
 
+        # h1 = batch_size × 256
+
         h1 = u1 * h_ + (1. - u1) * h1
         h1 = m_[:, None] * h1 + (1. - m_)[:, None] * h_
 
+        # gm = batch_size × 500 = batch_size × 256 dot 256 × 500
         g_m = tensor.dot(h_, Whg) + bhg
         g_m += yg
         g_m = tensor.nnet.sigmoid(g_m)
+        # mt = batch_size × 500 = batch_size × 256 dot 256 × 500
         mt = tensor.dot(h1, Umg)
         mt = tensor.tanh(mt)
         mt *= g_m
         # attention
+        # pstate_ = batch_size × 500
         pstate_ = tensor.dot(h1, W_comb_att)
 
         # converage vector
+        # batch_size × in_chancel × width × height 过卷积 out_channel × in_channel × width × height
+        # batch_size × 1 × seq_x × 1 过卷积 256 × 1 × 121 × 1
+        # cover_F =  batch_size × 256 × seq_x × 1
         cover_F = theano.tensor.nnet.conv2d(alpha_past_[:, None, :, None], conv_Q,
                                             border_mode='half')  # batch x dim x SeqL x 1
-        cover_F = cover_F.dimshuffle(1, 2, 0, 3)  # dim x SeqL x batch x 1
+
+        cover_F = cover_F.dimshuffle(1, 2, 0, 3)  # dim(256) x seq_x x batch_size x 1
+        # cover_F = # dim(256) x seq_x x batch_size
         cover_F = cover_F.reshape([cover_F.shape[0], cover_F.shape[1], cover_F.shape[2]])
         assert cover_F.ndim == 3, \
             'Output of conv must be 3-d: #dim x SeqL x batch'
         # cover_F = cover_F[:,pad:-pad,:]
+        # cover_F = # seq_x × batch_size × dim(256)
         cover_F = cover_F.dimshuffle(1, 2, 0)
         # cover_F must be SeqL x batch x dimctx
+        # cover_vector = Seqx x batch x 500
         cover_vector = tensor.dot(cover_F, conv_Uf) + conv_b
         # cover_vector = cover_vector * context_mask[:,:,None]
 
+        # seq_x × batch_size(8) × 500 + 1 × batch_size(8) × 500 + Seqx x batch x 500
         pctx__ = pctx_ + pstate_[None, :, :] + cover_vector
         # pctx__ += xc_
         pctx__ = tensor.tanh(pctx__)
+        # alpha = seq_x × batch_size × 1
         alpha = tensor.dot(pctx__, U_att) + c_tt
         # compute alpha_when
-
+        # pctx_when = batch_size × 500
         pctx_when = tensor.dot(mt, W_m_att)
+        # pstate_ = batch_size × 500
         pctx_when += pstate_
         pctx_when = tensor.tanh(pctx_when)
+        # alpha_when = batch_size × 1
         alpha_when = tensor.dot(pctx_when, U_when_att) + c_when_att  # batch * 1
 
-        alpha = alpha.reshape([alpha.shape[0], alpha.shape[1]])  # SeqL * batch
+        # alpha = Seq_x × batch
+        alpha = alpha.reshape([alpha.shape[0], alpha.shape[1]])  # Seq_x * batch
+        # alpha = Seq_x × batch
         alpha = tensor.exp(alpha)
         alpha_when = tensor.exp(alpha_when)
         if context_mask:
@@ -532,24 +621,36 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
         if context_mask:
             alpha_mean = alpha.sum(0, keepdims=True) / context_mask.sum(0, keepdims=True)
         else:
+            # alpha_mean = 1 × batch_size
             alpha_mean = alpha.mean(0, keepdims=True)
+        # alpha_when = (1+1)×batch
         alpha_when = concatenate([alpha_mean, alpha_when.T], axis=0)  # (SeqL+1)*batch
+        # alpha = Seq_x × batch
         alpha = alpha / alpha.sum(0, keepdims=True)
+        # 2 × batch_size
         alpha_when = alpha_when / alpha_when.sum(0, keepdims=True)
+        # beta = batch_size
         beta = alpha_when[-1, :]
+        # alpha_past = batch × Seql
         alpha_past = alpha_past_ + alpha.T
+        # ctx_ = batch_size(8) × 500 = (seq_x × batch_size(8) × 500 * seq_x ×batch_size × 1).sum(0)
         ctx_ = (cc_ * alpha[:, :, None]).sum(0)  # current context
+        # batch_size × 1 * batch_size × 500 + ...
+        # ctx_ = batch_size × 500
         ctx_ = beta[:, None] * mt + (1. - beta)[:, None] * ctx_
 
+        # preact2 = batch_size × 512 = batch_size × 256 * 256 × 512
         preact2 = tensor.dot(h1, U_nl) + b_nl
+        # preact2 = batch_size × 512 = batch_size × 500 * 500 × 512
         preact2 += tensor.dot(ctx_, Wc)
         preact2 = tensor.nnet.sigmoid(preact2)
 
         r2 = _slice(preact2, 0, dim)
         u2 = _slice(preact2, 1, dim)
-
+        # preactx2 = batch_size × 256 = batch_size × 256 * 256 × 256
         preactx2 = tensor.dot(h1, Ux_nl) + bx_nl
         preactx2 *= r2
+        # preactx2 += batch_size × 256 = batch_size × 500 * 500 × 256
         preactx2 += tensor.dot(ctx_, Wcx)
 
         h2 = tensor.tanh(preactx2)
@@ -606,7 +707,6 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
     return rval
 
 
-# initialize all parameters
 def init_params(options):
     params = OrderedDict()
 
@@ -614,6 +714,7 @@ def init_params(options):
     params['Wemb_dec'] = norm_weight(options['dim_target'], options['dim_word'])
 
     # encoder: bidirectional RNN
+    # get_layer(options['encoder'])[0] = param_init_gru
     params = get_layer(options['encoder'])[0](options, params,
                                               prefix='encoder0',
                                               nin=options['dim_feature'],
@@ -629,6 +730,7 @@ def init_params(options):
                                                   prefix='encoder' + str(i),
                                                   nin=hiddenSizes[i - 1] * 2,
                                                   dim=hiddenSizes[i])
+
         params = get_layer(options['encoder'])[0](options, params,
                                                   prefix='encoder_r' + str(i),
                                                   nin=hiddenSizes[i - 1] * 2,
@@ -636,9 +738,11 @@ def init_params(options):
     ctxdim = 2 * hiddenSizes[-1]
 
     # init_state, init_cell
+    # get_layer(options['ff'])[0] = param_init_fflayer
     params = get_layer('ff')[0](options, params, prefix='ff_state',
                                 nin=ctxdim, nout=options['dim_dec'])
     # decoder
+    # get_layer(options['decoder'])[0] = param_init_gru_cond
     params = get_layer(options['decoder'])[0](options, params,
                                               prefix='decoder',
                                               nin=options['dim_word'],
@@ -680,11 +784,15 @@ def build_model(tparams, options):
     a = a_original  # SeqX * batch * SeqY
     a_mask = a_mask_original  # SeqX * batch * SeqY
     # for the backward rnn, we just need to invert x and x_mask
+    # 倒序
     xr = x[::-1]
     xr_mask = x_mask_original[::-1]
 
+    # 即seq_length
     n_timesteps = x.shape[0]
     n_timesteps_trg = y.shape[0]
+
+    # 即batch_size
     n_samples = x.shape[1]
 
     # word embedding for forward rnn (source)
@@ -693,6 +801,7 @@ def build_model(tparams, options):
     hidden_sizes = options['dim_enc']
 
     for i in range(len(hidden_sizes)):
+        # get_layer(options['encoder'])[1] = gru_layer
         proj = get_layer(options['encoder'])[1](tparams, h, options,
                                                 prefix='encoder' + str(i),
                                                 mask=x_mask)
@@ -708,21 +817,29 @@ def build_model(tparams, options):
             xr_mask = x_mask[::-1]
             a = a[0::2]
             a_mask = a_mask[0::2]
+        # 倒序
         hr = h[::-1]
 
     # a -- SeqX * batch * SeqY
+    # tensor.sum(a, axis=0, keepdims=True) = 1 × batch_size(8) ×  seq_y
     a = a / (tensor.sum(a, axis=0, keepdims=True) + numpy.array(1e-20).astype('float32'))
 
     # context will be the concatenation of forward and backward rnns
+    # ctx = seq_x × batch_size(8) × 500
     ctx = h
 
     # mean of the context (across time) will be used to initialize decoder rnn
+    # x_mask[:, :, None] = seq_x × batch_size × 1
+    # (ctx * x_mask[:, :, None]).sum(0) = batch_size × 500
+    # x_mask.sum(0)[:, None] = batch_size ×1
     ctx_mean = (ctx * x_mask[:, :, None]).sum(0) / x_mask.sum(0)[:, None]
 
     # or you can use the last state of forward + backward encoder rnns
     # ctx_mean = concatenate([proj[0][-1], projr[0][-1]], axis=proj[0].ndim-2)
 
     # initial decoder state
+    # get_layer('ff')[1] = 'fflayer'
+    # init_state = batch_size × 256
     init_state = get_layer('ff')[1](tparams, ctx_mean, options,
                                     prefix='ff_state', activ='tanh')
 
@@ -730,13 +847,19 @@ def build_model(tparams, options):
     # to the right. This is done because of the bi-gram connections in the
     # readout and decoder rnn. The first target will be all zeros and we will
     # not condition on the last output.
+    # tparams['Wemb_dec'] = 111 × 256
+    # y.flatten = y_length * batch_size
+    # tparams['Wemb_dec'][y.flatten()] = y.flatten × 256
     emb = tparams['Wemb_dec'][y.flatten()]
+    # emb.reshape([n_timesteps_trg, n_samples, options['dim_word']]) = seq_y × batch_size × 256
     emb = emb.reshape([n_timesteps_trg, n_samples, options['dim_word']])
     emb_shifted = tensor.zeros_like(emb)  # the 0 idx is <eos>!!
     emb_shifted = tensor.set_subtensor(emb_shifted[1:], emb[:-1])
+    # 去除掉seq_y的最后一维，因为那是终结符
     emb = emb_shifted
 
     # decoder - pass through the decoder conditional gru with attention
+    # get_layer(options['decoder'])[1] = 'gru_cond_layer'
     proj = get_layer(options['decoder'])[1](tparams, emb, options,
                                             prefix='decoder',
                                             mask=y_mask, context=ctx,
@@ -744,24 +867,31 @@ def build_model(tparams, options):
                                             one_step=False,
                                             init_state=init_state)
     # hidden states of the decoder gru
+    # (Seq_y × batch_size(8), 256)
     proj_h = proj[0]
 
     # weighted averages of context, generated by attention module
+    # (Seq_y × batch_size(8), 500)
     ctxs = proj[1]
 
     # weights (alignment matrix)
+    # opt_ret['dec_alphas'] = SeqY * batch * SeqX
     opt_ret['dec_alphas'] = proj[2]  # SeqY * batch * SeqX while a -- SeqX * batch * SeqY
-
+    # dec_alphas = seqX × batch_size × seqY
     dec_alphas = proj[2].dimshuffle(2, 1, 0) + numpy.array(1e-20).astype('float32')
     cost_alphas = - a * tensor.log(dec_alphas) * a_mask
 
     # compute word probabilities
+    # logit_lstm = (Seq_y × batch_size(8), 256) = (Seq_y × batch_size(8), × 256) * 256 × 256
     logit_lstm = get_layer('ff')[1](tparams, proj_h, options,
                                     prefix='ff_logit_lstm', activ='linear')
+    # logit_prev = (Seq_y × batch_size(8) × 256) = (Seq_y × batch_size(8) × 256) * 256 × 256
     logit_prev = get_layer('ff')[1](tparams, emb, options,
                                     prefix='ff_logit_prev', activ='linear')
+    # logit_ctx = (Seq_y × batch_size(8) × 256)  = (Seq_y × batch_size(8) × 500) * (500 × 256)
     logit_ctx = get_layer('ff')[1](tparams, ctxs, options,
                                    prefix='ff_logit_ctx', activ='linear')
+    # 三部分概率相加
     logit = logit_lstm + logit_prev + logit_ctx
 
     # maxout 2
@@ -774,18 +904,22 @@ def build_model(tparams, options):
 
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, trng)
+    # logit = Seq_y × batch_size(8) × 111 = Seq_y × batch_size(8) × 128 * 128 × 111
     logit = get_layer('ff')[1](tparams, logit, options,
                                prefix='ff_logit', activ='linear')
-    logit_shp = logit.shape  # (seqL*batch, dim_target)
-    probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1],
-                                               logit_shp[2]]))  # (seqL*batch, dim_target)
+    logit_shp = logit.shape  # (seqL * batch, dim_target)
+    # probs = seqL * batch × 111
+    probs = tensor.nnet.softmax(
+        logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))  # (seqL * batch, dim_target)
 
     # cost
     cost = tensor.nnet.categorical_crossentropy(probs, y.flatten())  # x is a vector,each value is a 1-of-N position
+    # cost = seq_y * batch
     cost = cost.reshape([y.shape[0], y.shape[1]])
+
     cost = (cost * y_mask).sum(0) + options['gamma'] * cost_alphas.sum(axis=(0, 2))
 
-    return trng, use_noise, x, x_mask_original, y, y_mask, a_original, a_mask_original, opt_ret, cost
+    return trng, use_noise, x, x_mask_original, y, y_mask, a_original, a_mask_original, opt_ret, cost, ctxs, proj, probs, y.flatten()
 
 
 # build a sampler
@@ -816,11 +950,12 @@ def build_sampler(tparams, options, trng):
     # get the input for decoder rnn initializer mlp
     ctx_mean = ctx.mean(0)
     # ctx_mean = concatenate([proj[0][-1],projr[0][-1]], axis=proj[0].ndim-2)
+    # 1× 256
     init_state = get_layer('ff')[1](tparams, ctx_mean, options,
                                     prefix='ff_state', activ='tanh')
 
     print 'Building f_init...',
-    outs = [init_state, ctx]
+    outs = [init_state, ctx, h]
     f_init = theano.function([x], outs, name='f_init', profile=profile)
     print 'Done'
 
@@ -830,6 +965,7 @@ def build_sampler(tparams, options, trng):
     alpha_past = tensor.matrix('alpha_past', dtype='float32')
 
     # if it's the first word, emb should be all zero and it is indicated by -1
+    # (1, 256)
     emb = tensor.switch(y[:, None] < 0,
                         tensor.alloc(0., 1, tparams['Wemb_dec'].shape[1]),
                         tparams['Wemb_dec'][y])
@@ -840,6 +976,7 @@ def build_sampler(tparams, options, trng):
                                             mask=None, context=ctx,
                                             one_step=True,
                                             init_state=init_state, alpha_past=alpha_past)
+    # batch_size(1)× 256
     # get the next hidden state
     next_state = proj[0]
 
@@ -853,6 +990,7 @@ def build_sampler(tparams, options, trng):
                                     prefix='ff_logit_prev', activ='linear')
     logit_ctx = get_layer('ff')[1](tparams, ctxs, options,
                                    prefix='ff_logit_ctx', activ='linear')
+
     logit = logit_lstm + logit_prev + logit_ctx
 
     # maxout layer
@@ -861,15 +999,18 @@ def build_sampler(tparams, options, trng):
     shape2 = tensor.cast(2, 'int64')
     logit = logit.reshape([shape[0], shape1, shape2])  # batch*256 -> batch*128*2
     logit = logit.max(2)  # batch*500
-
+    # (1, 111)
     logit = get_layer('ff')[1](tparams, logit, options,
                                prefix='ff_logit', activ='linear')
 
+    # (1, 111)
     # compute the softmax probability
     next_probs = tensor.nnet.softmax(logit)
-
+    # 把最大位置1，其余全部置0
+    what = trng.multinomial(pvals=next_probs)
     # sample from softmax distribution to get the sample
-    next_sample = trng.multinomial(pvals=next_probs).argmax(1)
+
+    next_sample = what.argmax(1)
 
     # compile a function to do the whole thing above, next word probability,
     # sampled word for the next target, next hidden state to be used
@@ -918,6 +1059,9 @@ def gen_sample(tparams, f_init, f_next, x, options, trng=None, k=1, maxlen=30,
         inps = [next_w, ctx, next_state, next_alpha_past]
         ret = f_next(*inps)
         next_p, next_w, next_state, next_alpha_past = ret[0], ret[1], ret[2], ret[3]
+
+        print(next_state.shape)
+        print(next_state)
 
         if stochastic:
             if argmax:
@@ -1014,6 +1158,19 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
     return numpy.array(probs)
 
 
+'''
+dictFile  format
+
+\\gep 1
+\\sqrt 2
+\\leq 3
+\\infty 5
+( 6
+
+
+'''
+
+
 def load_dict(dictFile):
     fp = open(dictFile)
     stuff = fp.readlines()
@@ -1065,12 +1222,12 @@ def train(dim_word=100,  # word vector dimensionality
     model_options = locals().copy()
 
     # load dictionaries and invert them
-
+    # ×××××××××××××××××××××按id对号入座到list里××××××××××××××××××××
     worddicts = load_dict(dictionaries[0])
     worddicts_r = [None] * len(worddicts)
     for kk, vv in worddicts.iteritems():
         worddicts_r[vv] = kk
-
+    # ×××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
     # reload options
     if reload_ and os.path.exists(saveto):
         with open('%s.pkl' % saveto, 'rb') as f:
@@ -1080,6 +1237,9 @@ def train(dim_word=100,  # word vector dimensionality
     train = dataIterator(datasets[0], datasets[1], datasets[2],
                          worddicts,
                          batch_size=batch_size, maxlen=maxlen)
+    # Test
+    # x, x_mask, y, y_mask, a, a_mask = prepare_data(model_options, train[0][0], train[0][1], train[0][2], maxlen=maxlen)
+    # Test End
     valid, valid_uid_list = dataIterator_valid(valid_datasets[0], valid_datasets[1],
                                                worddicts,
                                                batch_size=batch_size, maxlen=maxlen)
@@ -1095,17 +1255,17 @@ def train(dim_word=100,  # word vector dimensionality
     trng, use_noise, \
     x, x_mask, y, y_mask, a, a_mask, \
     opt_ret, \
-    cost = \
+    cost, ctxs_1_result, proj_1_result, my_probs, my_y_f = \
         build_model(tparams, model_options)
     inps = [x, x_mask, y, y_mask, a, a_mask]
 
     print 'Buliding sampler'
-    f_init, f_next = build_sampler(tparams, model_options, trng)
+    f_init, f_next, emb = build_sampler(tparams, model_options, trng)
 
     # before any regularizer
-    print 'Building f_log_probs...',
-    f_log_probs = theano.function(inps, cost, profile=profile)
-    print 'Done'
+    # print 'Building f_log_probs...',
+    # f_log_probs = theano.function(inps, cost, profile=profile)
+    # print 'Done'
 
     cost = cost.mean()
 
@@ -1127,9 +1287,9 @@ def train(dim_word=100,  # word vector dimensionality
         cost += alpha_reg
 
     # after all regularizers - compile the computational graph for cost
-    print 'Building f_cost...',
-    f_cost = theano.function(inps, cost, profile=profile)
-    print 'Done'
+    # print 'Building f_cost...',
+    # f_cost = theano.function(inps, cost, profile=profile)
+    # print 'Done'
 
     print 'Computing gradient...',
     grads = tensor.grad(cost, wrt=itemlist(tparams))
@@ -1150,7 +1310,46 @@ def train(dim_word=100,  # word vector dimensionality
     # compile the optimizer, the actual computational graph is compiled here
     lr = tensor.scalar(name='lr')
     print 'Building optimizers...',
-    f_grad_shared, f_update = eval(optimizer)(lr, tparams, grads, inps, cost)
+
+    # eval(optimizer) = "adadelta"
+    # f_grad_shared, f_update = eval(optimizer)(lr, tparams, grads, inps, cost, x_mask_1_result, h_1_result)
+
+
+    def adadelta(lr, tparams, grads, inp, cost, ctxs_1_result, proj_1_result, my_probs, my_y_f):
+        zipped_grads = [theano.shared(p.get_value() * numpy.float32(0.),
+                                      name='%s_grad' % k)
+                        for k, p in tparams.iteritems()]
+        running_up2 = [theano.shared(p.get_value() * numpy.float32(0.),
+                                     name='%s_rup2' % k)
+                       for k, p in tparams.iteritems()]
+        running_grads2 = [theano.shared(p.get_value() * numpy.float32(0.),
+                                        name='%s_rgrad2' % k)
+                          for k, p in tparams.iteritems()]
+
+        zgup = [(zg, g) for zg, g in zip(zipped_grads, grads)]
+
+        rg2up = [(rg2, 0.95 * rg2 + 0.05 * (g ** 2))
+                 for rg2, g in zip(running_grads2, grads)]
+
+        f_grad_shared = theano.function(inp, [cost, ctxs_1_result, proj_1_result, my_probs, my_y_f],
+                                        updates=zgup + rg2up,
+                                        profile=profile)
+
+        updir = [-tensor.sqrt(ru2 + lr) / tensor.sqrt(rg2 + lr) * zg
+                 for zg, ru2, rg2 in zip(zipped_grads, running_up2,
+                                         running_grads2)]
+        ru2up = [(ru2, 0.95 * ru2 + 0.05 * (ud ** 2))
+                 for ru2, ud in zip(running_up2, updir)]
+        param_up = [(p, p + ud) for p, ud in zip(itemlist(tparams), updir)]
+
+        f_update = theano.function([lr], [], updates=ru2up + param_up,
+                                   on_unused_input='ignore', profile=profile)
+
+        return f_grad_shared, f_update
+
+    f_grad_shared, f_update = adadelta(lr, tparams, grads, inps, cost, ctxs_1_result, proj_1_result[0], my_probs,
+                                       my_y_f)
+
     print 'Done'
 
     # print model parameters
@@ -1192,6 +1391,16 @@ def train(dim_word=100,  # word vector dimensionality
 
             ud_start = time.time()
 
+            '''
+            前:
+
+            后:
+            x : 点的数量×batch_size(8)×9维特征
+            x_mask : 点的数量 × batch_size(8)
+            y : 28× 8
+            y_mask : 28 × 8
+            '''
+
             x, x_mask, y, y_mask, a, a_mask = prepare_data(model_options, x, y, a, maxlen=maxlen)
 
             if x is None:
@@ -1200,8 +1409,15 @@ def train(dim_word=100,  # word vector dimensionality
                 continue
 
             # compute cost, grads and copy grads to shared variables
-            cost = f_grad_shared(x, x_mask, y, y_mask, a, a_mask)
-
+            cost, ctxs_2_result, proj_2_result, my_probs, my_y_f = f_grad_shared(x, x_mask, y, y_mask, a, a_mask)
+            print "my_probs.shape is "
+            print my_probs.shape
+            print "my_probs is "
+            print my_probs
+            print "my_y_f.shape is "
+            print my_y_f.shape
+            print "my_y_f is "
+            print my_y_f
             # do the update on parameters
             f_update(lrate)
 
@@ -1336,5 +1552,20 @@ def train(dim_word=100,  # word vector dimensionality
     return
 
 
-if __name__ == '__main__':
-    pass
+vlen = 10 * 30 * 768  # 10 x #cores x # threads per core
+iters = 1000
+
+rng = numpy.random.RandomState(22)
+x = shared(numpy.asarray(rng.rand(vlen), config.floatX))
+f = function([], tensor.exp(x))
+print f.maker.fgraph.toposort()
+t0 = time.time()
+for i in range(iters):
+    r = f()
+t1 = time.time()
+print 'Looping %d times took' % iters, t1 - t0, 'seconds'
+print 'Result is', r
+if numpy.any([isinstance(x.op, tensor.Elemwise) for x in f.maker.fgraph.toposort()]):
+    print '**********************************\nUsed the cpu\n**********************************'
+else:
+    print '**********************************\nUsed the gpu\n**********************************'

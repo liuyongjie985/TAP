@@ -1,3 +1,4 @@
+# coding:utf-8
 '''
 Translates a source file using a translation model.
 '''
@@ -8,7 +9,7 @@ import theano.tensor as tensor
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 import cPickle as pkl
-#import ipdb
+# import ipdb
 import numpy
 import copy
 import pprint
@@ -31,10 +32,8 @@ from nmt import (build_sampler, load_params,
                  init_params, init_tparams, load_dict)
 
 
-
 def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
                stochastic=True, argmax=False):
-
     # k is the beam size we have
     if k > 1:
         assert not stochastic, \
@@ -54,15 +53,17 @@ def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
 
     # get initial state of decoder rnn and encoder context
     ret = f_init(x)
-    next_state, ctx0 = ret[0], ret[1]
+
+    next_state, ctx0, h = ret[0], ret[1], ret[2]
+    print(ctx0.shape)
+
     next_w = -1 * numpy.ones((1,)).astype('int64')  # bos indicator
     SeqL = x.shape[0]
-    hidden_sizes=options['dim_enc']
+    hidden_sizes = options['dim_enc']
     for i in range(len(hidden_sizes)):
-        if options['down_sample'][i]==1:
+        if options['down_sample'][i] == 1:
             SeqL = math.ceil(SeqL / 2.)
-    next_alpha_past = 0.0 * numpy.ones((1, int(SeqL))).astype('float32') # start position
-    
+    next_alpha_past = 0.0 * numpy.ones((1, int(SeqL))).astype('float32')  # start position
 
     for ii in xrange(maxlen):
         ctx = numpy.tile(ctx0, [live_k, 1])
@@ -82,7 +83,7 @@ def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
         else:
             cand_scores = hyp_scores[:, None] - numpy.log(next_p)
             cand_flat = cand_scores.flatten()
-            ranks_flat = cand_flat.argsort()[:(k-dead_k)]
+            ranks_flat = cand_flat.argsort()[:(k - dead_k)]
 
             voc_size = next_p.shape[1]
             trans_indices = ranks_flat / voc_size
@@ -90,12 +91,12 @@ def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
             costs = cand_flat[ranks_flat]
 
             new_hyp_samples = []
-            new_hyp_scores = numpy.zeros(k-dead_k).astype('float32')
+            new_hyp_scores = numpy.zeros(k - dead_k).astype('float32')
             new_hyp_states = []
             new_hyp_alpha_past = []
 
             for idx, [ti, wi] in enumerate(zip(trans_indices, word_indices)):
-                new_hyp_samples.append(hyp_samples[ti]+[wi])
+                new_hyp_samples.append(hyp_samples[ti] + [wi])
                 new_hyp_scores[idx] = copy.copy(costs[idx])
                 new_hyp_states.append(copy.copy(next_state[ti]))
                 new_hyp_alpha_past.append(copy.copy(next_alpha_past[ti]))
@@ -108,7 +109,7 @@ def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
             hyp_alpha_past = []
 
             for idx in xrange(len(new_hyp_samples)):
-                if new_hyp_samples[idx][-1] == 0: # <eol>
+                if new_hyp_samples[idx][-1] == 0:  # <eol>
                     sample.append(new_hyp_samples[idx])
                     sample_score.append(new_hyp_scores[idx])
                     dead_k += 1
@@ -141,7 +142,6 @@ def gen_sample(f_init, f_next, x, options, trng=None, k=1, maxlen=30,
 
 
 def main(model, dictionary_target, source_fea, source_latex, saveto, wer_file, k=5):
-
     # load model model_options
     with open('%s.pkl' % model, 'rb') as f:
         options = pkl.load(f)
@@ -152,8 +152,8 @@ def main(model, dictionary_target, source_fea, source_latex, saveto, wer_file, k
     for kk, vv in worddicts.iteritems():
         worddicts_r[vv] = kk
 
-    valid,valid_uid_list = dataIterator_valid(source_fea, source_latex,
-                         worddicts, batch_size=1, maxlen=2000)
+    valid, valid_uid_list = dataIterator_valid(source_fea, source_latex,
+                                               worddicts, batch_size=1, maxlen=2000)
 
     trng = RandomStreams(1234)
 
@@ -162,17 +162,19 @@ def main(model, dictionary_target, source_fea, source_latex, saveto, wer_file, k
     tparams = init_tparams(params)
     f_init, f_next = build_sampler(tparams, options, trng)
 
-    fpp_sample=open(saveto,'w')
-    valid_count_idx=0
+    fpp_sample = open(saveto, 'w')
+    valid_count_idx = 0
 
     print 'Decoding...'
     ud_epoch = 0
     ud_epoch_start = time.time()
-    for x,y in valid:
+    # x:batch_size(1) × seq_x ×9
+    for x, y in valid:
         for xx in x:
-            print '%d : %s' % (valid_count_idx+1, valid_uid_list[valid_count_idx])
-            xx_pad = numpy.zeros((xx.shape[0]+1,xx.shape[1]), dtype='float32')
-            xx_pad[:xx.shape[0],:] = xx
+            print '%d : %s' % (valid_count_idx + 1, valid_uid_list[valid_count_idx])
+            xx_pad = numpy.zeros((xx.shape[0] + 1, xx.shape[1]), dtype='float32')
+            # 最后一维为0，其余与xx一样
+            xx_pad[:xx.shape[0], :] = xx
             stochastic = False
             sample, score = gen_sample(f_init, f_next,
                                        xx_pad[:, None, :],
@@ -180,7 +182,7 @@ def main(model, dictionary_target, source_fea, source_latex, saveto, wer_file, k
                                        maxlen=1000,
                                        stochastic=stochastic,
                                        argmax=False)
-                        
+
             if stochastic:
                 ss = sample
             else:
@@ -188,25 +190,25 @@ def main(model, dictionary_target, source_fea, source_latex, saveto, wer_file, k
                 ss = sample[score.argmin()]
 
             fpp_sample.write(valid_uid_list[valid_count_idx])
-            valid_count_idx=valid_count_idx+1
+            valid_count_idx = valid_count_idx + 1
             for vv in ss:
-                if vv == 0: # <eol>
+                if vv == 0:  # <eol>
                     break
-                fpp_sample.write(' '+worddicts_r[vv])
+                fpp_sample.write(' ' + worddicts_r[vv])
             fpp_sample.write('\n')
     fpp_sample.close()
     ud_epoch = (time.time() - ud_epoch_start) / 60.
     print 'test set decode done, cost time ...', ud_epoch
     os.system('python compute-wer.py ' + saveto + ' ' + source_latex + ' ' + wer_file)
-    fpp=open(wer_file)
-    stuff=fpp.readlines()
+    fpp = open(wer_file)
+    stuff = fpp.readlines()
     fpp.close()
-    m=re.search('WER (.*)\n',stuff[0])
-    valid_per=100. * float(m.group(1))
-    m=re.search('ExpRate (.*)\n',stuff[1])
-    valid_sacc=100. * float(m.group(1))
+    m = re.search('WER (.*)\n', stuff[0])
+    valid_per = 100. * float(m.group(1))
+    m = re.search('ExpRate (.*)\n', stuff[1])
+    valid_sacc = 100. * float(m.group(1))
 
-    print 'Valid WER: %.2f%%, ExpRate: %.2f%%' % (valid_per,valid_sacc)
+    print 'Valid WER: %.2f%%, ExpRate: %.2f%%' % (valid_per, valid_sacc)
 
 
 if __name__ == "__main__":
@@ -223,4 +225,3 @@ if __name__ == "__main__":
 
     main(args.model, args.dictionary_target, args.source_fea, args.source_latex,
          args.saveto, args.wer_file, k=args.k)
-

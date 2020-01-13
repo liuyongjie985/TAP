@@ -5,7 +5,7 @@ import sys
 import cPickle as pkl
 import numpy as np
 
-FLAG = "train"
+FLAG = "test"
 
 feature_path = 'on-ascii-' + FLAG + '/'  # for test.pkl, change 'train' to 'test'
 outFile = 'online-' + FLAG + '.pkl'
@@ -15,8 +15,8 @@ features = {}
 
 sentNum = 0
 needCount = 100
-
 scpFile = open(FLAG + '_caption.txt')
+
 while 1:
     line = scpFile.readline().strip()  # remove the '\r\n'
     if not line or sentNum >= needCount:

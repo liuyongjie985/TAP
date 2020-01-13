@@ -1,7 +1,5 @@
-import numpy
-import os
+# coding:utf-8
 import sys
-
 from nmt import train
 
 

@@ -1,7 +1,6 @@
-#!/usr/bin/env python
+# coding:utf-8
+# !/usr/bin/env python
 
-import os
-import sys
 import cPickle as pkl
 import numpy
 
@@ -15,6 +14,13 @@ sentNum = 0
 needCount = 100
 
 scpFile = open('train_caption.txt')
+
+'''
+align-online-train.pkl format
+笔画点数×latex符号个数
+每一列latex符号对应的值为1的点，为书写该latex符号的坐标点
+'''
+
 while 1:
     line = scpFile.readline().strip()  # remove the '\n'
     if not line or sentNum >= needCount:
@@ -30,7 +36,10 @@ while 1:
         fea = numpy.loadtxt(feature_file)
         align = numpy.zeros([fea.shape[0], wordNum], dtype='int8')
         sentNum = sentNum + 1
-        penup_index = numpy.where(fea[:, -1] == 1)[0]  # 0 denote pen down, 1 denote pen up
+        temp1 = fea[:, -1]
+        temp2 = numpy.where(temp1 == 1)
+        # 以0开始的下标
+        penup_index = temp2[0]  # 0 denote pen down, 1 denote pen up
         with open(align_file) as f_align:
             wordNum = -1
             for align_line in f_align:
