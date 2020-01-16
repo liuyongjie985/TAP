@@ -34,6 +34,8 @@ def process(recfile, labelfile, resultfile):
             key = tmp[0]
             latex = tmp[1:]
             label_mat[key] = latex
+    
+    right_list = []
     for key_rec in rec_mat:
         label = label_mat[key_rec]
         rec = rec_mat[key_rec]
@@ -45,6 +47,12 @@ def process(recfile, labelfile, resultfile):
         total_line += 1
         if dist == 0:
             total_line_rec += 1
+            right_list.append(key_rec)
+    f_result = open("./right_file.txt","w")
+    for x in right_list:
+        f_result.write(x)
+        f_result.write("\n")
+    f_result.close()
     wer = float(total_dist)/total_label
     sacc = float(total_line_rec)/total_line
 
