@@ -1,4 +1,4 @@
-# coding:utf-8
+import numpy
 import sys
 import cPickle as pkl
 import gzip
@@ -23,8 +23,6 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
     aligns = pkl.load(fp3)
     fp3.close()
 
-    # **********************************Symbol classify 's label**********************************
-
     targets = {}
     # map word to int with dictionary
     for l in labels:
@@ -37,18 +35,15 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
             else:
                 print 'a word not in the dictionary !! sentence ', uid, 'word ', w
                 sys.exit()
-<<<<<<< HEAD
         targets[uid] = w_list
-    # **********************************************************************************************
-    # ××××××××××××××××××××××××××××××××××××××××收集所有样例拥有坐标点数并排序××××××××××××××××××××××××××××××
+
     sentLen = {}
     for uid, fea in features.iteritems():
         sentLen[uid] = len(fea)
 
     sentLen = sorted(sentLen.iteritems(),
                      key=lambda d: d[1])  # sorted by sentence length,  return a list with each triple element
-    # ×××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
-    # ××××××××××××××××××××××××××××××××××××按照坐标点数排序生成batch××××××××××××××××××××××××××××××××××××××
+
     feature_batch = []
     label_batch = []
     alignment_batch = []
@@ -62,32 +57,6 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
         ali = aligns[uid]
         lab = targets[uid]
         if len(lab) > maxlen:
-=======
-        targets[uid]=w_list
-
-
-
-    sentLen={}
-    for uid,fea in features.iteritems():
-        sentLen[uid]=len(fea)
-
-    sentLen= sorted(sentLen.iteritems(), key=lambda d:d[1]) # sorted by sentence length,  return a list with each triple element
-
-
-    feature_batch=[]
-    label_batch=[]
-    alignment_batch=[]
-    feature_total=[]
-    label_total=[]
-    alignment_total=[]
-    
-    i=0
-    for uid,length in sentLen:
-        fea=features[uid]
-        ali=aligns[uid]
-        lab=targets[uid]
-        if len(lab)>maxlen:
->>>>>>> 5df2f4fb61733b60455b5f86d6869a4bceded076
             print 'sentence', uid, 'length bigger than', maxlen, 'ignore'
         else:
             if i == batch_size:  # a batch is full
@@ -113,7 +82,7 @@ def dataIterator(feature_file, label_file, align_file, dictionary, batch_size, m
     feature_total.append(feature_batch)
     label_total.append(label_batch)
     alignment_total.append(alignment_batch)
-    # ×××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
+
     print 'total ', len(feature_total), 'batch data loaded'
 
     return zip(feature_total, label_total, alignment_total)
@@ -142,7 +111,6 @@ def dataIterator_valid(feature_file, label_file, dictionary, batch_size, maxlen)
                 sys.exit()
         targets[uid] = w_list
 
-    # targets['23_em_01'] = \frac { 8 } { 7 }
     sentLen = {}
     for uid, fea in features.iteritems():
         sentLen[uid] = len(fea)

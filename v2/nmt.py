@@ -80,7 +80,6 @@ def load_params(path, params):
             warnings.warn('%s is not in the archive' % kk)
             continue
         params[kk] = pp[kk]
-
     return params
 
 
@@ -708,8 +707,7 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
 
 
 def init_params(options):
-    params = OrderedDict()
-
+    params = {}
     # embedding
     params['Wemb_dec'] = norm_weight(options['dim_target'], options['dim_word'])
 
@@ -1166,7 +1164,6 @@ dictFile  format
 \\leq 3
 \\infty 5
 ( 6
-
 
 '''
 
